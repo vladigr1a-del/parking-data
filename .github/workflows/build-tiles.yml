@@ -1,0 +1,55 @@
+name: Build parking tiles
+
+on:
+  workflow_dispatch:        # lets you start it by hand with a button
+  schedule:
+    - cron: "23 3 5 * *"    # and automatically on the 5th of every month
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the files
+        uses: actions/checkout@v5
+
+      - name: Install osmium
+        run: sudo apt-get update && sudo apt-get install -y osmium-tool
+
+      - name: Download Finland from Geofabrik
+        run: curl -fL --retry 3 -o finland.osm.pbf https://download.geofabrik.de/europe/finland-latest.osm.pbf
+
+      - name: Keep only parking
+        run: |
+          osmium tags-filter finland.osm.pbf nwr/amenity=parking -o parking.osm.pbf --overwrite
+          osmium export parking.osm.pbf -f geojsonseq -o parking.geojsonseq --overwrite
+
+      - name: Make tiles
+        run: python3 make_tiles.py parking.geojsonseq site 11
+
+      - name: Set up Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@v4
